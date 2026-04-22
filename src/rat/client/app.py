@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import socket
 import ssl
-import time
 import threading
+import time
+import uuid
+from contextlib import suppress
 
 from rat.client.state import ClientState
 from rat.core.logging import LogSettings, setup_logging
@@ -18,6 +20,7 @@ class ClientApp:
         self.host = host
         self.port = port
         self.server_name = server_name
+        self.tls_paths = tls_paths
         self._ctx = create_client_context(tls_paths)
         self._state = ClientState()
         self._peer: RPCPeer | None = None
@@ -29,7 +32,7 @@ class ClientApp:
                 self._connect_once()
             except Exception as exc:
                 self.log.error("connect error: %s", exc)
-            time.sleep(5.0)
+            time.sleep(2.0)
 
     def stop(self) -> None:
         self._stop.set()
@@ -44,14 +47,26 @@ class ClientApp:
             raw.close()
             raise
 
+        session_id = str(uuid.uuid4())
+        self._state.session_id = session_id
+        self._state.connected = True
+
         peer = RPCPeer(conn, name="client", logger=self.log)
         self._peer = peer
         peer.start()
 
         peer.send_event("hello", collect_system_info().to_dict())
-        self.log.info("Connected to %s:%s", self.host, self.port)
+        self.log.info("Connected to %s:%s (session=%s, TLS)", self.host, self.port, session_id)
 
         while not peer.is_closed() and not self._stop.is_set():
             time.sleep(0.5)
 
-        self.log.info("Disconnected.")
+        self._state.connected = False
+        self._state.session_id = None
+        self.log.info("Disconnected (session=%s).", session_id)
+
+    def _close_peer(self) -> None:
+        if self._peer is not None:
+            with suppress(OSError):
+                self._peer.close()
+            self._peer = None
