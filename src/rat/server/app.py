@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import socket
 import ssl
 import threading
 import time
+from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 
 from rat.core.logging import LogSettings, setup_logging
 from rat.core.rpc import RPCPeer
@@ -26,8 +29,11 @@ class ServerApp:
         self.log = setup_logging(LogSettings(name="rat.server", filename="server.log"))
         self.host = host
         self.port = port
+        self.tls_paths = tls_paths
         self._ctx = create_server_context(tls_paths)
+        self._state_path = Path("data") / "state.json"
         self._sock: socket.socket | None = None
+        self._accept_thread: threading.Thread | None = None
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
         self._next_id = 1
@@ -38,15 +44,16 @@ class ServerApp:
         sock.bind((self.host, self.port))
         sock.listen(50)
         self._sock = sock
-        threading.Thread(target=self._accept_loop, name="accept", daemon=True).start()
+        self._accept_thread = threading.Thread(
+            target=self._accept_loop, name="accept", daemon=True
+        )
+        self._accept_thread.start()
         self.log.info("Listening on %s:%s (TLS)", self.host, self.port)
 
     def stop(self) -> None:
         if self._sock is not None:
-            try:
+            with suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         with self._lock:
             for sess in list(self._sessions.values()):
                 sess.peer.close()
@@ -65,6 +72,7 @@ class ServerApp:
             sess = self._sessions.pop(session_id, None)
         if sess is not None:
             sess.peer.close()
+        self._persist_state()
 
     def _accept_loop(self) -> None:
         assert self._sock is not None
@@ -77,10 +85,8 @@ class ServerApp:
                 conn = self._ctx.wrap_socket(raw_conn, server_side=True)
             except ssl.SSLError as exc:
                 self.log.warning("TLS handshake failed from %s: %s", addr, exc)
-                try:
+                with suppress(OSError):
                     raw_conn.close()
-                except OSError:
-                    pass
                 continue
 
             session_id = str(self._next_id)
@@ -99,7 +105,8 @@ class ServerApp:
             with self._lock:
                 self._sessions[session_id] = sess
 
-            self.log.info("New connection: session_id=%s addr=%s", session_id, addr)
+            self.log.info("Agent received! session_id=%s addr=%s", session_id, addr)
+            self._persist_state()
 
             try:
                 evt = peer.next_event(timeout=2.0)
@@ -108,5 +115,26 @@ class ServerApp:
                     if isinstance(data, dict):
                         sess.info = SystemInfo(**data)  # type: ignore[arg-type]
                         self.log.info("Agent %s identified: %s", session_id, sess.info)
+                        self._persist_state()
             except Exception:
-                pass
+                self.log.debug("No hello event from %s", session_id)
+
+    def _persist_state(self) -> None:
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._lock:
+                sessions = [
+                    {
+                        "session_id": s.session_id,
+                        "addr": {"host": s.addr[0], "port": s.addr[1]},
+                        "connected_at": s.connected_at,
+                        "info": s.info.to_dict() if s.info else None,
+                    }
+                    for s in self._sessions.values()
+                ]
+            self._state_path.write_text(
+                json.dumps({"sessions": sessions}, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            self.log.debug("persist_state failed: %s", exc)

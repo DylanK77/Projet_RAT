@@ -9,10 +9,12 @@ from rat.server.cli import run_cli
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="RAT server.")
-    parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8888)
-    parser.add_argument("--certs", default="certs")
+    parser = argparse.ArgumentParser(
+        description="RAT server (TLS, multi-agents, interactive CLI)."
+    )
+    parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8888, help="Bind port (default: 8888)")
+    parser.add_argument("--certs", default="certs", help="Certificates directory (default: certs)")
     args = parser.parse_args()
 
     certs = Path(args.certs)
