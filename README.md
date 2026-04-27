@@ -1,38 +1,66 @@
 ## Projet RAT (Python)
 
-Remote Administration Tool – client/serveur TCP chiffré (TLS), multi-sessions.
+Client/serveur TCP chiffré (TLS), multi-sessions, interactif.
 
 ## Prérequis
 
 - Python **3.10+**
 - Poetry
 
-## Installation (Poetry)
-
-Sous Windows (si `poetry` n'est pas dans le PATH), utilisez `python -m poetry`.
+## Installation
 
 ```bash
-pip install --user poetry
-poetry install
+python -m pip install --user poetry
+python -m poetry install
 ```
 
-## Qualité / pre-commit
+## Génération des certificats TLS
 
 ```bash
-poetry run pre-commit install
-poetry run pre-commit run -a
+python -m poetry run rat-gen-certs --out certs
 ```
 
-Outils :
-- Ruff (lint + format)
-- Black
-- Mypy
+## Lancer le serveur
+
+```bash
+python -m poetry run rat-server --host 0.0.0.0 --port 8888 --certs certs
+```
+
+## Lancer le client
+
+```bash
+python -m poetry run rat-client --host 127.0.0.1 --port 8888 --server-name localhost --certs certs
+```
+
+## Logs
+
+- Serveur : `data/logs/server.log`
+- Client : `data/logs/client.log`
+- Niveau configurable : `RAT_LOG_LEVEL=DEBUG`
+
+## Qualité
+
+```bash
+python -m poetry run pre-commit install
+python -m poetry run pre-commit run -a
+```
 
 ## Tests
 
 ```bash
-poetry run pytest
+python -m poetry run pytest
 ```
 
-> La documentation métier (commandes serveur/client, TLS, Docker) sera ajoutée
-> au fur et à mesure de l'implémentation.
+## Docker (serveur uniquement)
+
+```bash
+docker compose up --build
+```
+
+> Les certificats (`./certs`) doivent être générés avant.
+
+## Web UI (bonus)
+
+```bash
+python -m poetry run rat-web --host 127.0.0.1 --port 8000
+```
