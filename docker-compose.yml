@@ -1,0 +1,13 @@
+services:
+  rat-server:
+    build: .
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./captures:/app/captures
+    environment:
+      - RAT_LOG_LEVEL=INFO
+    restart: unless-stopped

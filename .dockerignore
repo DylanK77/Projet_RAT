@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.pre-commit-hooks/
+dist/
+build/
+*.log
+
+# Runtime artifacts – ne pas embarquer dans l'image
+certs/
+data/
+downloads/
+uploads/
+captures/
+
+# Dev
+tests/
+.git/
+.github/
