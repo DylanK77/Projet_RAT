@@ -142,6 +142,9 @@ def _handle_agent_command(app: ServerApp, state: CLIState, line: str) -> None:
 def _maybe_save_artifact(app: ServerApp, session_id: str, data: object) -> None:
     if not isinstance(data, dict):
         return
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        data = nested
     filename = data.get("filename")
     b64 = data.get("bytes_b64")
     if not isinstance(filename, str) or not isinstance(b64, str):

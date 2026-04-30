@@ -125,7 +125,7 @@ def cmd_record_audio(seconds: float, *, sample_rate: int = 44100) -> CommandResu
     seconds = max(0.1, min(float(seconds), 60.0))
     frames = int(sample_rate * seconds)
     audio = sd.rec(frames, samplerate=sample_rate, channels=1, dtype="float32")
-    sd.wait(timeout=int(seconds) + 5)
+    sd.wait()
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = Path(tmp.name)
