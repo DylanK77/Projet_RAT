@@ -25,11 +25,9 @@ def create_app(state_path: Path) -> FastAPI:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Optional web UI (bonus).")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
-    parser.add_argument(
-        "--state", default="data/state.json", help="Path to state.json (default: data/state.json)"
-    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--state", default="data/state.json")
     args = parser.parse_args()
 
     app = create_app(Path(args.state))

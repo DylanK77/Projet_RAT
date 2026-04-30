@@ -13,7 +13,6 @@ class ProtocolError(RuntimeError):
 
 
 _LEN_STRUCT = struct.Struct("!I")  # 4-byte unsigned big-endian length
-_MAX_FRAME = 50_000_000
 
 
 @dataclass(frozen=True)
@@ -42,7 +41,6 @@ class Message:
 
 
 def _recv_exact(sock: socket.socket, n: int) -> bytes:
-    """Lit exactement n octets, gère la fragmentation TCP."""
     chunks: list[bytes] = []
     remaining = n
     while remaining > 0:
@@ -56,7 +54,7 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 
 def send_message(sock: socket.socket, message: Message) -> None:
     packed = msgpack.packb(message.to_dict(), use_bin_type=True)
-    if len(packed) > _MAX_FRAME:
+    if len(packed) > 50_000_000:
         raise ProtocolError("Message too large")
     sock.sendall(_LEN_STRUCT.pack(len(packed)) + packed)
 
@@ -68,10 +66,10 @@ def recv_message(sock: socket.socket, *, timeout: float | None = None) -> Messag
             sock.settimeout(timeout)
         header = _recv_exact(sock, _LEN_STRUCT.size)
         (length,) = _LEN_STRUCT.unpack(header)
-        if length == 0 or length > _MAX_FRAME:
+        if length == 0 or length > 50_000_000:
             raise ProtocolError(f"Invalid frame length: {length}")
-        raw = _recv_exact(sock, length)
-        data = msgpack.unpackb(raw, raw=False)
+        payload = _recv_exact(sock, length)
+        data = msgpack.unpackb(payload, raw=False)
         if not isinstance(data, dict):
             raise ProtocolError("Invalid message payload")
         return Message.from_dict(data)

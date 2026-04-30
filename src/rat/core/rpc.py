@@ -30,22 +30,21 @@ class RPCPeer:
     """
     Bidirectional request/response messaging over an already-secured socket.
 
-    - Requests:  type="request",  payload={"command": str, "args": dict}
+    - Requests: type="request", payload={"command": str, "args": dict}
     - Responses: type="response", payload={"ok": bool, "result": dict, "error": str|None}
-    - Events:    type="event",    payload={"name": str, "data": dict}
+    - Events: type="event", payload={"name": str, "data": dict}
     """
 
     def __init__(self, sock, *, name: str, logger) -> None:
         self._sock = sock
+        self._sock.settimeout(None)
         self._name = name
         self._log = logger
         self._handlers: dict[str, Handler] = {}
         self._responses: dict[str, Queue[Message]] = {}
         self._events: Queue[Message] = Queue()
         self._closed = threading.Event()
-        self._rx_thread = threading.Thread(
-            target=self._rx_loop, name=f"{name}-rx", daemon=True
-        )
+        self._rx_thread = threading.Thread(target=self._rx_loop, name=f"{name}-rx", daemon=True)
 
     def start(self) -> None:
         self._rx_thread.start()
@@ -67,9 +66,7 @@ class RPCPeer:
         send_message(
             self._sock,
             Message(
-                type="event",
-                request_id=str(uuid.uuid4()),
-                payload={"name": name, "data": data},
+                type="event", request_id=str(uuid.uuid4()), payload={"name": name, "data": data}
             ),
         )
 
@@ -126,40 +123,6 @@ class RPCPeer:
         except OSError as exc:
             self._log.warning("send_response failed: %s", exc)
 
-    def _dispatch_request(self, msg: Message) -> None:
-        payload = msg.payload
-        cmd = payload.get("command")
-        args = payload.get("args", {})
-        if not isinstance(cmd, str) or not isinstance(args, dict):
-            self._send_response(
-                msg.request_id, ok=False, result={}, error="Invalid request format"
-            )
-            return
-        handler = self._handlers.get(cmd)
-        if handler is None:
-            self._send_response(
-                msg.request_id, ok=False, result={}, error=f"Unknown command: {cmd}"
-            )
-            return
-        try:
-            started = time.time()
-            res = handler(RPCRequest(request_id=msg.request_id, command=cmd, args=args))
-            took_ms = int((time.time() - started) * 1000)
-            self._send_response(
-                msg.request_id,
-                ok=True,
-                result={"data": res, "took_ms": took_ms},
-                error=None,
-            )
-        except Exception as exc:
-            self._log.exception("handler error for %s", cmd)
-            self._send_response(
-                msg.request_id,
-                ok=False,
-                result={},
-                error=f"{type(exc).__name__}: {exc}",
-            )
-
     def _rx_loop(self) -> None:
         while not self._closed.is_set():
             try:
@@ -181,7 +144,35 @@ class RPCPeer:
                 continue
 
             if msg.type == "request":
-                self._dispatch_request(msg)
+                payload = msg.payload
+                cmd = payload.get("command")
+                args = payload.get("args", {})
+                if not isinstance(cmd, str) or not isinstance(args, dict):
+                    self._send_response(
+                        msg.request_id, ok=False, result={}, error="Invalid request format"
+                    )
+                    continue
+                handler = self._handlers.get(cmd)
+                if handler is None:
+                    self._send_response(
+                        msg.request_id, ok=False, result={}, error=f"Unknown command: {cmd}"
+                    )
+                    continue
+                try:
+                    started = time.time()
+                    res = handler(RPCRequest(request_id=msg.request_id, command=cmd, args=args))
+                    took_ms = int((time.time() - started) * 1000)
+                    self._send_response(
+                        msg.request_id,
+                        ok=True,
+                        result={"data": res, "took_ms": took_ms},
+                        error=None,
+                    )
+                except Exception as exc:
+                    self._log.exception("handler error for %s", cmd)
+                    self._send_response(
+                        msg.request_id, ok=False, result={}, error=f"{type(exc).__name__}: {exc}"
+                    )
                 continue
 
             self._log.warning("unknown message type: %s", msg.type)

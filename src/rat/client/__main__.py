@@ -8,7 +8,7 @@ from rat.core.tls import TLSPaths
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Client TLS.")
+    parser = argparse.ArgumentParser(description="RAT client (TLS).")
     parser.add_argument("--host", required=True, help="Server host/IP")
     parser.add_argument("--port", type=int, default=8888, help="Server port (default: 8888)")
     parser.add_argument(

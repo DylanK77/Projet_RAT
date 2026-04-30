@@ -11,3 +11,11 @@ env/
 dist/
 build/
 *.log
+
+# RAT runtime artifacts
+data/
+certs/
+downloads/
+uploads/
+captures/
+

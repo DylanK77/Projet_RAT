@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import socket
 import ssl
 import threading
@@ -44,9 +43,7 @@ class ServerApp:
         sock.bind((self.host, self.port))
         sock.listen(50)
         self._sock = sock
-        self._accept_thread = threading.Thread(
-            target=self._accept_loop, name="accept", daemon=True
-        )
+        self._accept_thread = threading.Thread(target=self._accept_loop, name="accept", daemon=True)
         self._accept_thread.start()
         self.log.info("Listening on %s:%s (TLS)", self.host, self.port)
 
@@ -108,6 +105,7 @@ class ServerApp:
             self.log.info("Agent received! session_id=%s addr=%s", session_id, addr)
             self._persist_state()
 
+            # Best-effort: capture client system info if provided.
             try:
                 evt = peer.next_event(timeout=2.0)
                 if evt and evt.get("name") == "hello":
@@ -123,17 +121,18 @@ class ServerApp:
         try:
             self._state_path.parent.mkdir(parents=True, exist_ok=True)
             with self._lock:
-                sessions = [
-                    {
-                        "session_id": s.session_id,
-                        "addr": {"host": s.addr[0], "port": s.addr[1]},
-                        "connected_at": s.connected_at,
-                        "info": s.info.to_dict() if s.info else None,
-                    }
-                    for s in self._sessions.values()
-                ]
+                sessions = []
+                for s in self._sessions.values():
+                    sessions.append(
+                        {
+                            "session_id": s.session_id,
+                            "addr": {"host": s.addr[0], "port": s.addr[1]},
+                            "connected_at": s.connected_at,
+                            "info": s.info.to_dict() if s.info else None,
+                        }
+                    )
             self._state_path.write_text(
-                json.dumps({"sessions": sessions}, indent=2),
+                __import__("json").dumps({"sessions": sessions}, indent=2),
                 encoding="utf-8",
             )
         except Exception as exc:

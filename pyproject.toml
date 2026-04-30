@@ -4,12 +4,9 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "projet-rat"
-version = "0.1.0"
+version = "1.0.0"
 description = "Remote Administration Tool (RAT) - client/serveur chiffré TLS, multi-sessions."
-authors = [
-  "Dylan Klein <d.klein@myskolae.fr>",
-  "Lelian Dupont <l.dupont@myskolae.fr>"
-]
+authors = ["Groupe <groupe@example.com>"]
 readme = "README.md"
 packages = [{ include = "rat", from = "src" }]
 
@@ -21,6 +18,18 @@ prompt-toolkit = ">=3.0.48"
 psutil = ">=6.0.0"
 mss = ">=9.0.1"
 pillow = ">=10.4.0"
+pynput = ">=1.7.7"
+opencv-python = ">=4.10.0.0"
+sounddevice = ">=0.5.1"
+soundfile = ">=0.12.1"
+fastapi = ">=0.115.0"
+uvicorn = ">=0.30.0"
+
+[tool.poetry.scripts]
+rat-server = "rat.server.__main__:main"
+rat-client = "rat.client.__main__:main"
+rat-web = "rat.web.__main__:main"
+rat-gen-certs = "rat.tools.gen_certs:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
@@ -43,8 +52,17 @@ show-fixes = true
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "B", "C4", "SIM", "UP", "S", "RUF"]
-ignore = ["S101", "S104"]
+select = [
+  "E", "F", "I", "W",
+  "B", "C4", "SIM",
+  "UP",
+  "S",
+  "RUF",
+]
+ignore = [
+  "S101", # asserts in tests are ok
+  "S104", # server intentionally binds to 0.0.0.0 by default
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
@@ -54,6 +72,8 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 no_implicit_optional = true
 check_untyped_defs = true
 strict_equality = true
@@ -62,3 +82,4 @@ mypy_path = "src"
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+

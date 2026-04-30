@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-from rat.core.tls import TLSPaths
-from rat.server.app import ServerApp
-from rat.server.cli import run_cli
+if __package__ == "src.rat.server":
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from rat.core.tls import TLSPaths  # noqa: E402
+from rat.server.app import ServerApp  # noqa: E402
+from rat.server.cli import run_cli  # noqa: E402
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="RAT server (TLS, multi-agents, interactive CLI)."
-    )
+    parser = argparse.ArgumentParser(description="RAT server (TLS, multi-agents, interactive CLI).")
     parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8888, help="Bind port (default: 8888)")
     parser.add_argument("--certs", default="certs", help="Certificates directory (default: certs)")
