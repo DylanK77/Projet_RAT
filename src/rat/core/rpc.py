@@ -44,6 +44,7 @@ class RPCPeer:
         self._responses: dict[str, Queue[Message]] = {}
         self._events: Queue[Message] = Queue()
         self._closed = threading.Event()
+        self._send_lock = threading.Lock()
         self._rx_thread = threading.Thread(target=self._rx_loop, name=f"{name}-rx", daemon=True)
 
     def start(self) -> None:
@@ -63,11 +64,10 @@ class RPCPeer:
     def send_event(self, name: str, data: dict[str, Any]) -> None:
         if self.is_closed():
             raise RPCClosed()
-        send_message(
-            self._sock,
+        self._send_message(
             Message(
                 type="event", request_id=str(uuid.uuid4()), payload={"name": name, "data": data}
-            ),
+            )
         )
 
     def request(
@@ -79,8 +79,7 @@ class RPCPeer:
         q: Queue[Message] = Queue(maxsize=1)
         self._responses[request_id] = q
         try:
-            send_message(
-                self._sock,
+            self._send_message(
                 Message(
                     type="request",
                     request_id=request_id,
@@ -112,8 +111,7 @@ class RPCPeer:
         self, request_id: str, *, ok: bool, result: dict[str, Any], error: str | None
     ) -> None:
         try:
-            send_message(
-                self._sock,
+            self._send_message(
                 Message(
                     type="response",
                     request_id=request_id,
@@ -122,6 +120,10 @@ class RPCPeer:
             )
         except OSError as exc:
             self._log.warning("send_response failed: %s", exc)
+
+    def _send_message(self, message: Message) -> None:
+        with self._send_lock:
+            send_message(self._sock, message)
 
     def _rx_loop(self) -> None:
         while not self._closed.is_set():

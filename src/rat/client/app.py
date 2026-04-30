@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platform
 import socket
 import ssl
 import threading
@@ -139,23 +140,42 @@ class ClientApp:
         return {"stopped": True, "token": old}
 
     def _webcam_stream_loop(self, token: str, fps: float) -> None:
+        cap = None
         try:
             import cv2
 
-            cap = cv2.VideoCapture(0)
+            backend = cv2.CAP_DSHOW if platform.system().lower().startswith("win") else 0
+            cap = cv2.VideoCapture(0, backend)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, fps)
             if not cap.isOpened():
                 self.log.warning("webcam not available")
                 return
             delay = 1.0 / fps
+            warmed_frame = None
+            warmup_deadline = time.time() + 2.0
+            while time.time() < warmup_deadline:
+                ok, frame = cap.read()
+                if ok:
+                    warmed_frame = frame
+                    break
+                time.sleep(0.05)
+            if warmed_frame is None:
+                self.log.warning("webcam stream could not read initial frame")
+                return
             while (
                 self._state.webcam_stream_running
                 and self._peer is not None
                 and not self._peer.is_closed()
             ):
-                ok, frame = cap.read()
-                if not ok:
-                    time.sleep(delay)
-                    continue
+                frame = warmed_frame
+                warmed_frame = None
+                if frame is None:
+                    ok, frame = cap.read()
+                    if not ok:
+                        time.sleep(delay)
+                        continue
                 ok2, buf = cv2.imencode(".jpg", frame)
                 if not ok2:
                     time.sleep(delay)
@@ -168,5 +188,8 @@ class ClientApp:
         except Exception as exc:
             self.log.warning("webcam_stream_loop error: %s", exc)
         finally:
+            self._state.webcam_stream_running = False
+            self._state.webcam_stream_token = None
             with suppress(Exception):
-                cap.release()  # type: ignore[name-defined]
+                if cap is not None:
+                    cap.release()
